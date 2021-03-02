@@ -361,31 +361,6 @@ def make_reader_wrapper_class(class_name):
                                   'Set the name of the data file')
     return ReaderWrapper
 
-__has_omero_jars = None
-def has_omero_packages():
-    '''Return True if we can find the packages needed for OMERO
-
-    In order to run OMERO, you'll need the OMERO client and ICE
-    on your class path (not supplied with python-bioformats and
-    specific to your server's version)
-    '''
-    global __has_omero_jars
-    if __has_omero_jars is None:
-        class_loader = jutil.static_call(
-            "java/lang/ClassLoader", "getSystemClassLoader",
-            "()Ljava/lang/ClassLoader;")
-        for klass in ("Glacier2.PermissionDeniedException",
-                      "loci.ome.io.OmeroReader", "omero.client"):
-            try:
-                jutil.call(
-                    class_loader, "loadClass",
-                    "(Ljava/lang/String;)Ljava/lang/Class;", klass)
-            except:
-                __has_omero_jars = False
-                break
-        else:
-            __has_omero_jars = True
-    return __has_omero_jars
 
 __omero_server = None
 __omero_username = None
@@ -503,31 +478,6 @@ def set_omero_login_hook(fn):
     global __omero_login_fn
     __omero_login_fn = fn
 
-def get_omero_reader():
-    '''Return an ``loci.ome.io.OMEROReader`` instance, wrapped as a FormatReader.
-
-    '''
-    script = """
-    var rdr = new Packages.loci.ome.io.OmeroReader();
-    rdr.setServer(server);
-    rdr.setPort(port);
-    rdr.setUsername(username);
-    rdr.setSessionID(sessionID);
-    rdr;
-    """
-    if __omero_session_id is None:
-        omero_login()
-
-    jrdr = jutil.run_script(script, dict(
-        server = __omero_server,
-        port = __omero_port,
-        username = __omero_username,
-        sessionID = __omero_session_id))
-
-    rdr = make_iformat_reader_class()()
-    rdr.o = jrdr
-    return rdr
-
 
 def load_using_bioformats_url(url, c=None, z=0, t=0, series=None, index=None,
                           rescale = True,
@@ -567,46 +517,10 @@ class ImageReader(object):
 
         self.path = path
         if path is None:
-            if url.lower().startswith("omero:"):
-                while True:
-                    #
-                    # We keep trying to contact the OMERO server via the
-                    # login dialog until the user gives up or we connect.
-                    #
-                    try:
-                        self.rdr = get_omero_reader()
-                        self.path = url
-                        if perform_init:
-                            self.init_reader()
-                        return
-                    except jutil.JavaException as e:
-                        je = e.throwable
-                        if jutil.is_instance_of(
-                            je, "loci/formats/FormatException"):
-                            je = jutil.call(je, "getCause",
-                                            "()Ljava/lang/Throwable;")
-                        if jutil.is_instance_of(
-                            je, "Glacier2/PermissionDeniedException"):
-                            omero_logout()
-                            omero_login()
-                        else:
-                            logger.warn(e.message)
-                            for line in traceback.format_exc().split("\n"):
-                                logger.warn(line)
-                            if jutil.is_instance_of(
-                                je, "java/io/FileNotFoundException"):
-                                raise IOError(
-                                    errno.ENOENT,
-                                    "The file, \"%s\", does not exist." % path,
-                                    path)
-                            e2 = IOError(
-                                errno.EINVAL, "Could not load the file as an image (see log for details)", path.encode('utf-8'))
-                            raise e2
-            else:
-                #
-                # Other URLS, copy them to a tempfile location
-                #
-                filename = self.download(url)
+            #
+            # Other URLS, copy them to a tempfile location
+            #
+            filename = self.download(url)
         else:
             if sys.platform.startswith("win"):
                 self.path = self.path.replace("/", os.path.sep)
@@ -733,10 +647,6 @@ class ImageReader(object):
             for line in traceback.format_exc().split("\n"):
                 logger.warn(line)
             je = e.throwable
-            if has_omero_packages() and jutil.is_instance_of(
-                je, "Glacier2/PermissionDeniedException"):
-                # Handle at a higher level
-                raise
             if jutil.is_instance_of(
                 je, "loci/formats/FormatException"):
                 je = jutil.call(je, "getCause",
