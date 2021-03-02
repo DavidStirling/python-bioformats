@@ -52,13 +52,12 @@ from . import metadatatools as metadatatools
 import javabridge as javabridge
 import boto3
 
-OMERO_READER_IMPORTED = False
-try:
-    from omero_reader import OmeroReader, OMERO_IMPORTED
-    from omero_reader.utils import omero_reader_enabled
-    OMERO_READER_IMPORTED = True
-except ImportError:
-    pass
+
+import omero.clients
+from omero_reader import OmeroReader
+
+
+OMERO_CLIENT = None
 
 K_OMERO_SERVER = "omero_server"
 K_OMERO_PORT = "omero_port"
@@ -420,16 +419,11 @@ def set_omero_credentials(omero_server, omero_port, omero_username, omero_passwo
     __omero_server = omero_server
     __omero_port = omero_port
     __omero_username = omero_username
-    script = """
-    var client = Packages.omero.client(server, port);
-    var serverFactory = client.createSession(user, password);
-    client.getSessionId();
-    """
-    __omero_session_id = jutil.run_script(script, dict(
-        server = __omero_server,
-        port = __omero_port,
-        user = __omero_username,
-        password = omero_password))
+    logger.info("OMERO login")
+    OMERO_CLIENT = omero.client(host=__omero_server, port=__omero_port)
+    OMERO_CLIENT.createSession(__omero_username, omero_password)
+    OMERO_CLIENT.enableKeepAlive(60)
+    __omero_session_id = OMERO_CLIENT.getSessionId()
     return __omero_session_id
 
 def get_omero_credentials():
@@ -458,12 +452,11 @@ def omero_login():
         config = env.make_object_array(1, env.find_class("java/lang/String"))
         env.set_object_array_element(
             config, 0, env.new_string("--Ice.Config=%s" % __omero_config_file))
-        script = """
-        var client = Packages.omero.client(config);
-        client.createSession();
-        client.getSessionId();
-        """
-        __omero_session_id = jutil.run_script(script, dict(config=config))
+        logger.info("OMERO via config login")
+        OMERO_CLIENT = omero.client(config)
+        OMERO_CLIENT.createSession()
+        OMERO_CLIENT.enableKeepAlive(60)
+        __omero_session_id = OMERO_CLIENT.getSessionId()
     elif all([x is not None for x in
               (__omero_server, __omero_port, __omero_username, __omero_password)]):
         set_omero_credentials(__omero_server, __omero_port, __omero_username,
@@ -477,6 +470,10 @@ def omero_logout():
 
     '''
     global __omero_session_id
+    logger.info("Closing OMERO session")
+    if OMERO_CLIENT is not None and __omero_session_id is not None:
+        OMERO_CLIENT.getSession().getSessionService().closeSession(
+            __omero_session_id)
     __omero_session_id = None
 
 def use_omero_credentials(credentials):
@@ -951,10 +948,10 @@ def get_image_reader(key, path=None, url=None):
         # is True OMERO python reader can be used to directly request
         # the image pixels from the server.
         # Following this route gives almost 10x speed up.
-        if OMERO_READER_IMPORTED and OMERO_IMPORTED and \
-                omero_reader_enabled() and \
-                url is not None and url.lower().startswith("omero:"):
+        if url.lower().startswith("omero:"):
             logger.debug("Initializing Python reader.")
+            if __omero_session_id is None:
+                omero_login()
             rdr = OmeroReader(__omero_server, __omero_session_id, url=url)
         else:
             logger.debug("Falling back to Java reader.")
