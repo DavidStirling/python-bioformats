@@ -21,7 +21,7 @@ setuptools.setup(
     install_requires=[
         "boto3>=1.14.23",
         "future>=0.18.2",
-        "python-javabridge==4.0.3",
+        "python-javabridge==4.0.0",
         "omero-py>=5.6.0",
         "omero-reader>=0.1.0"
     ],
@@ -41,5 +41,5 @@ setuptools.setup(
         "bioformats"
     ],
     url="http://github.com/CellProfiler/python-bioformats/",
-    version="4.0.4"
+    version="4.0.0"
 )
