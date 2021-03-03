@@ -57,8 +57,6 @@ import omero.clients
 from omero_reader import OmeroReader
 
 
-OMERO_CLIENT = None
-
 K_OMERO_SERVER = "omero_server"
 K_OMERO_PORT = "omero_port"
 K_OMERO_USER = "omero_user"
@@ -361,7 +359,7 @@ def make_reader_wrapper_class(class_name):
                                   'Set the name of the data file')
     return ReaderWrapper
 
-
+__OMERO_CLIENT = None
 __omero_server = None
 __omero_username = None
 __omero_session_id = None
@@ -391,14 +389,16 @@ def set_omero_credentials(omero_server, omero_port, omero_username, omero_passwo
     global __omero_username
     global __omero_session_id
     global __omero_port
+    global __OMERO_CLIENT
     __omero_server = omero_server
     __omero_port = omero_port
     __omero_username = omero_username
     logger.info("OMERO login")
-    OMERO_CLIENT = omero.client(host=__omero_server, port=__omero_port)
-    OMERO_CLIENT.createSession(__omero_username, omero_password)
-    OMERO_CLIENT.enableKeepAlive(60)
-    __omero_session_id = OMERO_CLIENT.getSessionId()
+    __OMERO_CLIENT = omero.client(host=__omero_server, port=__omero_port)
+    session = __OMERO_CLIENT.createSession(__omero_username, omero_password)
+    __OMERO_CLIENT.enableKeepAlive(60)
+    session.detachOnDestroy()
+    __omero_session_id = __OMERO_CLIENT.getSessionId()
     return __omero_session_id
 
 def get_omero_credentials():
@@ -422,16 +422,17 @@ def omero_login():
     global __omero_username
     global __omero_port
     global __omero_password
+    global __OMERO_CLIENT
     if __omero_config_file is not None and os.path.isfile(__omero_config_file):
         env = jutil.get_env()
         config = env.make_object_array(1, env.find_class("java/lang/String"))
         env.set_object_array_element(
             config, 0, env.new_string("--Ice.Config=%s" % __omero_config_file))
         logger.info("OMERO via config login")
-        OMERO_CLIENT = omero.client(config)
-        OMERO_CLIENT.createSession()
-        OMERO_CLIENT.enableKeepAlive(60)
-        __omero_session_id = OMERO_CLIENT.getSessionId()
+        __OMERO_CLIENT = omero.client(config)
+        __OMERO_CLIENT.createSession()
+        __OMERO_CLIENT.enableKeepAlive(60)
+        __omero_session_id = __OMERO_CLIENT.getSessionId()
     elif all([x is not None for x in
               (__omero_server, __omero_port, __omero_username, __omero_password)]):
         set_omero_credentials(__omero_server, __omero_port, __omero_username,
@@ -445,10 +446,13 @@ def omero_logout():
 
     '''
     global __omero_session_id
+    global __OMERO_CLIENT
     logger.info("Closing OMERO session")
-    if OMERO_CLIENT is not None and __omero_session_id is not None:
-        OMERO_CLIENT.getSession().getSessionService().closeSession(
-            __omero_session_id)
+    if __OMERO_CLIENT is not None:
+        logger.info("Closing session {}".format(__omero_session_id))
+        __OMERO_CLIENT.closeSession()
+    elif __OMERO_CLIENT is None:
+        logger.error("OMERO Client is None can't close the session")
     __omero_session_id = None
 
 def use_omero_credentials(credentials):
