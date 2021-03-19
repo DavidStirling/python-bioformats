@@ -592,7 +592,7 @@ class ImageReader(object):
         scheme = urlparse(url)[0]
         ext = url[url.rfind("."):]
         urlpath = urlparse(url)[2]
-        filename = unquote(urlpath.split("/")[-1])
+        filename = os.path.basename(self.path)
 
         self.using_temp_file = True
 
